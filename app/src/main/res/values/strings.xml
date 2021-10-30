@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Scope Storage Demo</string>
+    <string name="pick_document_file">Pick Document File</string>
+</resources>

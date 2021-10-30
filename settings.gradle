@@ -1,0 +1,2 @@
+rootProject.name = "Scope Storage Demo"
+include ':app'
