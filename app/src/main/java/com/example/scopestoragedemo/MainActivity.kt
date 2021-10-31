@@ -254,7 +254,7 @@ class MainActivity : AppCompatActivity() {
                     context.contentResolver.openFileDescriptor(selectedFileUri, "r", null)
                 val inputStream = FileInputStream(parcelFileDescriptor?.fileDescriptor)
                 val destinationFile = File(
-                    context.filesDir,
+                    File(RealPathUtil.getRealPath(context,destFolderUri)),
                     context.contentResolver.getFileName(selectedFileUri)
                 )
                 val outputStream = FileOutputStream(destinationFile)
