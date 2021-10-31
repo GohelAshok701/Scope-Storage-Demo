@@ -1,15 +1,22 @@
 package com.example.scopestoragedemo
 
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.util.Log
 import android.widget.Button
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import java.io.*
+import kotlin.concurrent.thread
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -36,7 +43,7 @@ class MainActivity : AppCompatActivity() {
             }
             arePermissionsGranted(uriString) -> {
                 val intent = Intent()
-                intent.action = Intent.ACTION_GET_CONTENT
+                intent.action = Intent.ACTION_OPEN_DOCUMENT
                 intent.type = "application/pdf"
                 startActivityForResult(intent, FILE_PICK_REQUEST)
             }
@@ -97,10 +104,13 @@ class MainActivity : AppCompatActivity() {
                 /*copyFileUsingStream(File(realPath),
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + File.separator + RealPathUtil.getFileName(this,data.data)))*/
 
-                val docUri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, "")),
+                /*val docUri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, "")),
                     DocumentsContract.getTreeDocumentId(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, ""))));
                 copyFileUsingStream(File(realPath),
-                    File(RealPathUtil.getRealPath(this, docUri) + File.separator + RealPathUtil.getFileName(this,data.data)))
+                    File(RealPathUtil.getRealPath(this, docUri) + File.separator + RealPathUtil.getFileName(this,data.data)))*/
+
+                /*data.data?.let { copyUriToExternalFilesDir(it, File(realPath).name) }*/
+                saveFileToExternalStorage(RealPathUtil.getFileName(this, data.data),"ABC TESTING")
             }
         }
     }
@@ -110,15 +120,31 @@ class MainActivity : AppCompatActivity() {
         var inputStream: InputStream? = null
         var outputStream: OutputStream? = null
         try {
-            inputStream = FileInputStream(source)
-            outputStream = FileOutputStream(dest)
-            val buffer = ByteArray(1024)
-            var length: Int
-            while (inputStream.read(buffer).also { length = it } > 0) {
-                outputStream.write(buffer, 0, length)
+            val newdestFile = dest.createNewFile()
+            if (newdestFile){
+                /*inputStream = FileInputStream(source)
+                outputStream = FileOutputStream(dest)
+                val buffer = ByteArray(1024)
+                var length: Int
+                while (inputStream.read(buffer).also { length = it } > 0) {
+                    outputStream.write(buffer, 0, length)
+                }*/
+                val fos = FileOutputStream(dest)
+                val bis = BufferedInputStream(inputStream)
+                val bos = BufferedOutputStream(fos)
+                val byteArray = ByteArray(1024)
+                var bytes = bis.read(byteArray)
+                while (bytes > 0) {
+                    bos.write(byteArray, 0, bytes)
+                    bos.flush()
+                    bytes = bis.read(byteArray)
+                }
+                bos.close()
+                fos.close()
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            Toast.makeText(this, e.toString(), Toast.LENGTH_SHORT).show()
         } finally {
             if (inputStream != null) {
                 inputStream.close()
@@ -126,6 +152,85 @@ class MainActivity : AppCompatActivity() {
             if (outputStream != null) {
                 outputStream.close()
             }
+        }
+    }
+
+    private fun copyUriToExternalFilesDir(uri: Uri, fileName: String) {
+        thread {
+            val inputStream = contentResolver.openInputStream(uri)
+            val tempDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            if (inputStream != null && tempDir != null) {
+                val file = File("$tempDir/$fileName")
+                val fos = FileOutputStream(file)
+                val bis = BufferedInputStream(inputStream)
+                val bos = BufferedOutputStream(fos)
+                val byteArray = ByteArray(1024)
+                var bytes = bis.read(byteArray)
+                while (bytes > 0) {
+                    bos.write(byteArray, 0, bytes)
+                    bos.flush()
+                    bytes = bis.read(byteArray)
+                }
+                bos.close()
+                fos.close()
+                runOnUiThread {
+                    Toast.makeText(this, "Copy file into $tempDir succeeded.", Toast.LENGTH_LONG)
+                        .show()
+                }
+            }
+        }
+
+        val handler = Handler()
+        handler.postDelayed({
+            val tempFile =
+                getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS + File.separator + fileName)
+            if (tempFile!!.exists()) {
+                val docUri = DocumentsContract.buildDocumentUriUsingTree(
+                    Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, "")),
+                    DocumentsContract.getTreeDocumentId(
+                        Uri.parse(
+                            SpUtil.getString(
+                                SpUtil.FOLDER_URI,
+                                ""
+                            )
+                        )
+                    )
+                );
+
+                copyFileUsingStream(
+                    tempFile,
+                    File(RealPathUtil.getRealPath(this, docUri) + File.separator + tempFile.name)
+                )
+            }
+        }, 5000)
+    }
+
+    private fun saveFileToExternalStorage(displayName: String, content: String) {
+        try {
+            val externalUri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val relativeLocation = Environment.DIRECTORY_DOCUMENTS
+            val contentValues = ContentValues()
+            contentValues.put(MediaStore.Files.FileColumns.DISPLAY_NAME, "$displayName")
+            contentValues.put(MediaStore.Files.FileColumns.MIME_TYPE, "application/pdf")
+            contentValues.put(MediaStore.Files.FileColumns.TITLE, "Test")
+            contentValues.put(
+                MediaStore.Files.FileColumns.DATE_ADDED,
+                System.currentTimeMillis() / 1000
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.put(MediaStore.Files.FileColumns.RELATIVE_PATH, relativeLocation)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.put(MediaStore.Files.FileColumns.DATE_TAKEN, System.currentTimeMillis())
+            }
+            val fileUri = contentResolver.insert(externalUri, contentValues)
+
+            val outputStream = contentResolver.openOutputStream(fileUri!!)
+            outputStream!!.write(content.toByteArray())
+            outputStream.close()
+        } catch (e: IOException) {
+            Toast.makeText(this, e.toString(), Toast.LENGTH_LONG)
+                .show()
         }
     }
 }
