@@ -1,6 +1,8 @@
 package com.example.scopestoragedemo
 
+import android.content.ContentResolver
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -9,6 +11,7 @@ import android.os.Environment
 import android.os.Handler
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Button
 import android.widget.Toast
@@ -109,8 +112,8 @@ class MainActivity : AppCompatActivity() {
                 copyFileUsingStream(File(realPath),
                     File(RealPathUtil.getRealPath(this, docUri) + File.separator + RealPathUtil.getFileName(this,data.data)))*/
 
-                /*data.data?.let { copyUriToExternalFilesDir(it, File(realPath).name) }*/
-                saveFileToExternalStorage(RealPathUtil.getFileName(this, data.data),"ABC TESTING")
+                data.data?.let { copyUriToExternalFilesDir(it, File(realPath).name) }
+                /*saveFileToExternalStorage(RealPathUtil.getFileName(this, data.data),"ABC TESTING")*/
             }
         }
     }
@@ -180,7 +183,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val handler = Handler()
+        Handler().postDelayed({
+            val destFolderUri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, "")),
+                DocumentsContract.getTreeDocumentId(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, ""))))
+            copyFileIntoFilesDir(this, destFolderUri, uri)
+        }, 5000)
+
+        /*val handler = Handler()
         handler.postDelayed({
             val tempFile =
                 getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS + File.separator + fileName)
@@ -202,7 +211,7 @@ class MainActivity : AppCompatActivity() {
                     File(RealPathUtil.getRealPath(this, docUri) + File.separator + tempFile.name)
                 )
             }
-        }, 5000)
+        }, 5000)*/
     }
 
     private fun saveFileToExternalStorage(displayName: String, content: String) {
@@ -221,7 +230,10 @@ class MainActivity : AppCompatActivity() {
                 contentValues.put(MediaStore.Files.FileColumns.RELATIVE_PATH, relativeLocation)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                contentValues.put(MediaStore.Files.FileColumns.DATE_TAKEN, System.currentTimeMillis())
+                contentValues.put(
+                    MediaStore.Files.FileColumns.DATE_TAKEN,
+                    System.currentTimeMillis()
+                )
             }
             val fileUri = contentResolver.insert(externalUri, contentValues)
 
@@ -232,5 +244,57 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, e.toString(), Toast.LENGTH_LONG)
                 .show()
         }
+    }
+
+    fun copyFileIntoFilesDir(context: Context, destFolderUri: Uri, selectedFileUri: Uri) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            // r for read
+            try {
+                val parcelFileDescriptor =
+                    context.contentResolver.openFileDescriptor(selectedFileUri, "r", null)
+                val inputStream = FileInputStream(parcelFileDescriptor?.fileDescriptor)
+                val destinationFile = File(
+                    RealPathUtil.getRealPath(this, destFolderUri),
+                    context.contentResolver.getFileName(selectedFileUri)
+                )
+                val outputStream = FileOutputStream(destinationFile)
+                copy(inputStream, outputStream)
+            } catch (e: Exception) {
+                Log.e("ScopeStoreUtils", "copyFileIntoFilesDir: Exception: $e")
+            }
+        }
+    }
+
+    private fun ContentResolver.getFileName(fileUri: Uri): String {
+        var name = ""
+        val returnCursor = this.query(fileUri, null, null, null, null)
+        if (returnCursor != null) {
+            val nameIndex = returnCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            returnCursor.moveToFirst()
+            name = returnCursor.getString(nameIndex)
+            returnCursor.close()
+        }
+        return name
+    }
+
+
+    @Throws(IOException::class)
+    fun copy(input: InputStream?, output: OutputStream?): Int {
+        val count = copyLarge(input!!, output!!)
+        return if (count > Int.MAX_VALUE) {
+            -1
+        } else count.toInt()
+    }
+
+    @Throws(IOException::class)
+    fun copyLarge(input: InputStream, output: OutputStream): Long {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var count: Long = 0
+        var n: Int
+        while (-1 != input.read(buffer).also { n = it }) {
+            output.write(buffer, 0, n)
+            count += n.toLong()
+        }
+        return count
     }
 }
