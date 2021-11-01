@@ -15,8 +15,8 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Button
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import androidx.documentfile.provider.DocumentFile
 import java.io.*
 import kotlin.concurrent.thread
 
@@ -102,8 +102,8 @@ class MainActivity : AppCompatActivity() {
             }
         } else if (resultCode == RESULT_OK && requestCode == FILE_PICK_REQUEST) {
             if (data != null) {
-                var realPath = RealPathUtil.getRealPath(this, data.data)
-                Log.d(LOGTAG, "onActivityResult: " + realPath)
+                /*var realPath = RealPathUtil.getRealPath(this, data.data)
+                Log.d(LOGTAG, "onActivityResult: " + realPath)*/
                 /*copyFileUsingStream(File(realPath),
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS + File.separator + RealPathUtil.getFileName(this,data.data)))*/
 
@@ -112,7 +112,7 @@ class MainActivity : AppCompatActivity() {
                 copyFileUsingStream(File(realPath),
                     File(RealPathUtil.getRealPath(this, docUri) + File.separator + RealPathUtil.getFileName(this,data.data)))*/
 
-                data.data?.let { copyUriToExternalFilesDir(it, File(realPath).name) }
+                data.data?.let { copyUriToExternalFilesDir(it, RealPathUtil.getFileName(this,data.data)) }
                 /*saveFileToExternalStorage(RealPathUtil.getFileName(this, data.data),"ABC TESTING")*/
             }
         }
@@ -184,9 +184,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         Handler().postDelayed({
-            val destFolderUri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, "")),
-                DocumentsContract.getTreeDocumentId(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, ""))))
-            copyFileIntoFilesDir(this, destFolderUri, uri)
+            if (arePermissionsGranted(SpUtil.getString(SpUtil.FOLDER_URI, ""))) {
+                val destFolderUri = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, "")),
+                    DocumentsContract.getTreeDocumentId(Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI, ""))))
+                copyFileIntoFilesDir(this, destFolderUri, uri)
+            }
         }, 5000)
 
         /*val handler = Handler()
@@ -252,12 +254,24 @@ class MainActivity : AppCompatActivity() {
             try {
                 val parcelFileDescriptor =
                     context.contentResolver.openFileDescriptor(selectedFileUri, "r", null)
+                val pickedDir = DocumentFile.fromTreeUri(this, destFolderUri)
+
+                contentResolver.takePersistableUriPermission(
+                    Uri.parse(SpUtil.getString(SpUtil.FOLDER_URI,"")),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+
+                if (pickedDir != null) {
+                    pickedDir.createFile(".pdf",RealPathUtil.getFileName(this,selectedFileUri))
+                }
                 val inputStream = FileInputStream(parcelFileDescriptor?.fileDescriptor)
-                val destinationFile = File(
+                /*val destinationFile = File(
                     File(RealPathUtil.getRealPath(context,destFolderUri)),
                     context.contentResolver.getFileName(selectedFileUri)
-                )
-                val outputStream = FileOutputStream(destinationFile)
+                )*/
+                val parcelFileDescriptorWrite =
+                    pickedDir?.let { context.contentResolver.openFileDescriptor(it.uri, "w", null) }
+                val outputStream = FileOutputStream(parcelFileDescriptorWrite?.fileDescriptor)
                 copy(inputStream, outputStream)
             } catch (e: Exception) {
                 Log.e("ScopeStoreUtils", "copyFileIntoFilesDir: Exception: $e")
